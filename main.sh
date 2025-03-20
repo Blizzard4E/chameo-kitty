@@ -25,6 +25,9 @@ else
     WALLPAPER_SET=true
 fi
 
+# Create a global COLORS array that will be used by both theming functions
+COLORS=()
+
 # Define minimum resolution dimensions for 2K
 MIN_WIDTH=2560
 MIN_HEIGHT=1440
@@ -33,8 +36,53 @@ MIN_HEIGHT=1440
 # Default to 1 month if not specified
 TIMEFRAME="${1:-1M}"
 
-# Function to extract color palette from the current wallpaper and update kitty config
-apply_wallpaper_colors_to_kitty() {
+# Function to apply colors from wallpaper to Hyprland configuration
+apply_wallpaper_colors_to_hyprland() {
+    echo "Applying wallpaper colors to Hyprland configuration..." 
+    # Find a vibrant color for active border (preferably from the middle of the array)
+    ACTIVE_COLOR="${COLORS[14]}"
+    
+    # Find a neutral color for inactive border (preferably darker)
+    INACTIVE_COLOR="${COLORS[0]}"
+    
+    # Convert hex colors to rgba format for Hyprland
+    # Strip # and add alpha channel
+    ACTIVE_RGBA="rgba(${ACTIVE_COLOR:1:2}${ACTIVE_COLOR:3:2}${ACTIVE_COLOR:5:2}ee)"
+    INACTIVE_RGBA="rgba(${INACTIVE_COLOR:1:2}${INACTIVE_COLOR:3:2}${INACTIVE_COLOR:5:2}aa)"
+    
+    # Path to Hyprland config
+    HYPR_CONFIG="$HOME/.config/hypr/hyprland.conf"
+    
+    # Check if config exists
+    if [ ! -f "$HYPR_CONFIG" ]; then
+        echo "Error: Hyprland config not found at $HYPR_CONFIG"
+        return 1
+    fi
+    
+    # Backup existing config
+    cp "$HYPR_CONFIG" "${HYPR_CONFIG}.backup"
+    echo "Backed up existing Hyprland config to ${HYPR_CONFIG}.backup"
+    
+    # Update the border colors in the configuration
+    # Using sed to replace the lines containing border colors
+    sed -i "s/col\.active_border = rgba([^)]*)/col.active_border = $ACTIVE_RGBA/" "$HYPR_CONFIG"
+    sed -i "s/col\.inactive_border = rgba([^)]*)/col.inactive_border = $INACTIVE_RGBA/" "$HYPR_CONFIG"
+    
+    echo "Hyprland border colors updated successfully!"
+    echo "Active border: $ACTIVE_RGBA"
+    echo "Inactive border: $INACTIVE_RGBA"
+    
+    # Clean up
+    rm -rf "$TEMP_DIR"
+    
+    # Notify user they need to reload Hyprland for changes to take effect
+    echo "To apply these changes, you need to reload Hyprland (hyprctl reload) or restart it"
+    
+    return 0
+}
+
+# Function to extract colors from the wallpaper (shared by both terminal and Hyprland functions)
+extract_colors_from_wallpaper() {
     echo "Extracting color palette from current wallpaper..."
     
     # Find the current wallpaper
@@ -75,6 +123,22 @@ apply_wallpaper_colors_to_kitty() {
     while [ ${#COLORS[@]} -lt 16 ]; do
         COLORS+=("#000000")
     done
+    
+    return 0
+}
+
+# Function to extract color palette from the current wallpaper and update kitty config
+apply_wallpaper_colors_to_kitty() {
+    echo "Applying colors to kitty terminal configuration..."
+    
+    # Extract colors if not already done
+    if [ ${#COLORS[@]} -eq 0 ]; then
+        extract_colors_from_wallpaper
+        if [ $? -ne 0 ]; then
+            echo "Failed to extract colors from wallpaper"
+            return 1
+        fi
+    fi
     
     # Sort colors by brightness for better assignment
     # (This is a simplified approach - a more sophisticated sorting could be implemented)
@@ -130,7 +194,7 @@ selection_background $SELECTION_BG
 # Include any custom kitty settings that were previously defined
 # You may want to add your custom settings below this line
 
-background_opacity 0.8
+background_opacity 0.85
 background_blur 1 
 EOL
     
@@ -166,7 +230,7 @@ fetch_wallpaper() {
     local height=0
     
     # Make the API request to Wallhaven
-    local fetch_response=$(curl -s "https://wallhaven.cc/api/v1/search?sorting=toplist&order=desc&topRange=${TIMEFRAME}")
+    local fetch_response=$(curl -s "https://wallhaven.cc/api/v1/search?sorting=toplist")
     
     # Check if API request was successful (empty response means no internet)
     if [ -z "$fetch_response" ]; then
@@ -285,6 +349,9 @@ if $FIRST_RUN; then
         
         # Apply color palette to kitty terminal
         apply_wallpaper_colors_to_kitty
+        
+        # Apply color palette to Hyprland
+        apply_wallpaper_colors_to_hyprland 
     else
         echo "Warning: No current wallpaper found to apply"
     fi
@@ -345,6 +412,8 @@ else
         
         # Apply color palette to kitty terminal
         apply_wallpaper_colors_to_kitty
+
+        apply_wallpaper_colors_to_hyprland
     else
         echo "Warning: No current wallpaper found to apply"
     fi
