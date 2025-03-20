@@ -25,20 +25,17 @@ else
     WALLPAPER_SET=true
 fi
 
-# Search for random 2K wallpapers from Wallhaven
-# 2K resolution is typically 2560x1440
-# Using the Wallhaven API to search for random images with specific parameters
-
-# Define the resolution for 2K
-RESOLUTION="2560x1440"
+# Define minimum resolution dimensions for 2K
+MIN_WIDTH=2560
+MIN_HEIGHT=1440
 
 # Define timeframe for popularity (1d, 3d, 1w, 1M, 3M, 6M, 1y)
 # Default to 1 month if not specified
 TIMEFRAME="${1:-1M}"
 
-# Make the API request to Wallhaven, searching for popular images with 2K resolution
+# Make the API request to Wallhaven, searching for popular images without resolution filter
 # Using 'toplist' sorting parameter with timeframe to get popular wallpapers
-response=$(curl -s "https://wallhaven.cc/api/v1/search?resolutions=${RESOLUTION}&sorting=toplist&order=desc&topRange=${TIMEFRAME}")
+response=$(curl -s "https://wallhaven.cc/api/v1/search?sorting=toplist&order=desc&topRange=${TIMEFRAME}")
 
 # Extract the direct image URL from the JSON response
 # We're using jq to parse the JSON and get the first image URL
@@ -48,30 +45,19 @@ if ! command -v jq &> /dev/null; then
     exit 1
 fi
 
-# Extract a random image URL from the results (this is used only for first fetch in non-function part)
-# First get the total number of results returned
-total_results=$(echo "$response" | jq '.data | length')
-
-# Check if we have any results
-if [[ "$total_results" -eq 0 ]]; then
-    echo "Error: No wallpapers found matching the criteria"
-    exit 1
-fi
-
-# Generate a random index
-random_index=$((RANDOM % total_results))
-
-# Extract the image URL at the random index
-image_url=$(echo "$response" | jq -r ".data[$random_index].path")
-
-# Function to fetch and download a random popular wallpaper
+# Function to fetch and download a random popular wallpaper with at least 2K resolution
 fetch_wallpaper() {
     local save_path=$1
+    local max_attempts=10
+    local attempt=1
+    local fetch_image_url=""
+    local width=0
+    local height=0
     
     # Make the API request to Wallhaven
-    local fetch_response=$(curl -s "https://wallhaven.cc/api/v1/search?resolutions=${RESOLUTION}&sorting=toplist&order=desc&topRange=${TIMEFRAME}")
+    local fetch_response=$(curl -s "https://wallhaven.cc/api/v1/search?sorting=toplist&order=desc&topRange=${TIMEFRAME}")
     
-    # Count results and pick a random one
+    # Count results
     local total_results=$(echo "$fetch_response" | jq '.data | length')
     
     # Check if we have any results
@@ -80,15 +66,31 @@ fetch_wallpaper() {
         return 1
     fi
     
-    # Generate a random index
-    local fetch_random_index=$((RANDOM % total_results))
+    # Try to find a wallpaper with at least 2K resolution
+    while [[ $attempt -le $max_attempts && ($width -lt $MIN_WIDTH || $height -lt $MIN_HEIGHT) ]]; do
+        echo "Attempt $attempt to find a 2K+ resolution wallpaper..."
+        
+        # Generate a random index
+        local fetch_random_index=$((RANDOM % total_results))
+        
+        # Extract the dimensions
+        width=$(echo "$fetch_response" | jq -r ".data[$fetch_random_index].dimension_x")
+        height=$(echo "$fetch_response" | jq -r ".data[$fetch_random_index].dimension_y")
+        
+        # Check if dimensions are at least 2K
+        if [[ $width -ge $MIN_WIDTH && $height -ge $MIN_HEIGHT ]]; then
+            fetch_image_url=$(echo "$fetch_response" | jq -r ".data[$fetch_random_index].path")
+            echo "Found wallpaper with resolution ${width}x${height}"
+            break
+        fi
+        
+        echo "Skipping wallpaper with resolution ${width}x${height} (too small)"
+        ((attempt++))
+    done
     
-    # Extract the image URL at the random index
-    local fetch_image_url=$(echo "$fetch_response" | jq -r ".data[$fetch_random_index].path")
-    
-    # Check if we got a valid URL
-    if [[ "$fetch_image_url" == "null" || -z "$fetch_image_url" ]]; then
-        echo "Error: Could not fetch a valid image URL"
+    # Check if we found a suitable wallpaper
+    if [[ "$fetch_image_url" == "null" || -z "$fetch_image_url" || $width -lt $MIN_WIDTH || $height -lt $MIN_HEIGHT ]]; then
+        echo "Error: Could not find a wallpaper with at least 2K resolution after $max_attempts attempts"
         return 1
     fi
     
@@ -99,7 +101,7 @@ fetch_wallpaper() {
     local full_save_path="${save_path}.${fetch_extension}"
     
     # Download the wallpaper
-    echo "Downloading wallpaper to ${full_save_path}..."
+    echo "Downloading ${width}x${height} wallpaper to ${full_save_path}..."
     curl -s "$fetch_image_url" -o "$full_save_path"
     
     # Check if download was successful
