@@ -40,7 +40,7 @@ TIMEFRAME="${1:-1M}"
 apply_wallpaper_colors_to_hyprland() {
     echo "Applying wallpaper colors to Hyprland configuration..." 
     # Find a vibrant color for active border (preferably from the middle of the array)
-    ACTIVE_COLOR="${COLORS[14]}"
+    ACTIVE_COLOR="${COLORS[10]}"
     
     # Find a neutral color for inactive border (preferably darker)
     INACTIVE_COLOR="${COLORS[0]}"
