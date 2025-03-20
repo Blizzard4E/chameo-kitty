@@ -34,7 +34,7 @@ RESOLUTION="2560x1440"
 
 # Define timeframe for popularity (1d, 3d, 1w, 1M, 3M, 6M, 1y)
 # Default to 1 month if not specified
-TIMEFRAME="${1:-1w}"
+TIMEFRAME="${1:-1M}"
 
 # Make the API request to Wallhaven, searching for popular images with 2K resolution
 # Using 'toplist' sorting parameter with timeframe to get popular wallpapers
