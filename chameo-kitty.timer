@@ -1,0 +1,13 @@
+[Unit]
+Description=Run Chameo Kitty Wallpaper Rotation periodically
+
+[Timer]
+# Start 1 seconds after boot
+OnBootSec=1sec
+# Run every 5 minutes
+OnUnitActiveSec=1min
+# Uncomment to use calendar-based timing instead
+# OnCalendar=*:0/5
+
+[Install]
+WantedBy=timers.target

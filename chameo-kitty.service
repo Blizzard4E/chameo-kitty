@@ -1,0 +1,11 @@
+[Unit]
+Description=Chameo Kitty Wallpaper Rotation
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=%h/.config/chameo-kitty/main.sh
+
+[Install]
+WantedBy=default.target
