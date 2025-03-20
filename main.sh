@@ -33,17 +33,128 @@ MIN_HEIGHT=1440
 # Default to 1 month if not specified
 TIMEFRAME="${1:-1M}"
 
-# Make the API request to Wallhaven, searching for popular images without resolution filter
-# Using 'toplist' sorting parameter with timeframe to get popular wallpapers
-response=$(curl -s "https://wallhaven.cc/api/v1/search?sorting=toplist&order=desc&topRange=${TIMEFRAME}")
+# Function to extract color palette from the current wallpaper and update kitty config
+apply_wallpaper_colors_to_kitty() {
+    echo "Extracting color palette from current wallpaper..."
+    
+    # Find the current wallpaper
+    CURRENT_WALLPAPER=$(find "$SAVE_DIR" -name "current.*" | head -1)
+    
+    if [ ! -f "$CURRENT_WALLPAPER" ]; then
+        echo "Error: No current wallpaper found"
+        return 1
+    fi
+    
+    # Check if imagemagick is installed (for convert command)
+    if ! command -v convert &> /dev/null; then
+        echo "Error: ImageMagick is not installed. Install it using: sudo pacman -S imagemagick"
+        return 1
+    fi
+    
+    # Create temp directory for palette extraction
+    TEMP_DIR="/tmp/wallpaper-palette"
+    mkdir -p "$TEMP_DIR"
+    
+    # Extract 16 dominant colors from the wallpaper
+    echo "Extracting dominant colors..."
+    convert "$CURRENT_WALLPAPER" -resize 400x400 -colors 16 -unique-colors txt:- | grep -v "^#" > "$TEMP_DIR/colors.txt"
+    
+    # Create an array of colors
+    COLORS=()
+    while read -r line; do
+        # Extract hex color code from line and remove alpha channel if present
+        COLOR=$(echo "$line" | grep -o '#[0-9a-fA-F]*')
+        # Remove alpha channel (last 2 characters) if color is 9 characters (#RRGGBBAA)
+        if [ ${#COLOR} -eq 9 ]; then
+            COLOR="${COLOR:0:7}"
+        fi
+        COLORS+=("$COLOR")
+    done < "$TEMP_DIR/colors.txt"
+    
+    # Fill with default colors if we don't have enough
+    while [ ${#COLORS[@]} -lt 16 ]; do
+        COLORS+=("#000000")
+    done
+    
+    # Sort colors by brightness for better assignment
+    # (This is a simplified approach - a more sophisticated sorting could be implemented)
+    
+    # Assign foreground/background colors
+    # Use the lightest color for foreground and darkest for background
+    BACKGROUND_COLOR="${COLORS[0]}"
+    FOREGROUND_COLOR="${COLORS[15]}"
+    CURSOR_COLOR="${COLORS[7]}"
+    SELECTION_BG="${COLORS[8]}"
+    SELECTION_FG="${COLORS[0]}"
+    
+    # Path to kitty config
+    KITTY_CONFIG="$HOME/.config/kitty/kitty.conf"
+    
+    # Create kitty config directory if it doesn't exist
+    mkdir -p "$(dirname "$KITTY_CONFIG")"
+    
+    # Backup existing kitty config if it exists
+    if [ -f "$KITTY_CONFIG" ]; then
+        cp "$KITTY_CONFIG" "${KITTY_CONFIG}.backup"
+        echo "Backed up existing kitty config to ${KITTY_CONFIG}.backup"
+    fi
+    
+    # Create or update kitty config with the new colors
+    echo "Updating kitty configuration..."
+    cat > "$KITTY_CONFIG" << EOL
+# Auto-generated kitty color configuration from wallpaper
+# Generated on $(date)
 
-# Extract the direct image URL from the JSON response
-# We're using jq to parse the JSON and get the first image URL
-# Check if jq is installed
-if ! command -v jq &> /dev/null; then
-    echo "Error: jq is not installed. Install it using: sudo pacman -S jq"
-    exit 1
-fi
+foreground $FOREGROUND_COLOR
+background $BACKGROUND_COLOR
+cursor $CURSOR_COLOR
+color0 ${COLORS[0]}
+color1 ${COLORS[1]}
+color2 ${COLORS[2]}
+color3 ${COLORS[3]}
+color4 ${COLORS[4]}
+color5 ${COLORS[5]}
+color6 ${COLORS[6]}
+color7 ${COLORS[7]}
+color8 ${COLORS[8]}
+color9 ${COLORS[9]}
+color10 ${COLORS[10]}
+color11 ${COLORS[11]}
+color12 ${COLORS[12]}
+color13 ${COLORS[13]}
+color14 ${COLORS[14]}
+color15 ${COLORS[15]}
+selection_foreground $SELECTION_FG
+selection_background $SELECTION_BG
+
+# Include any custom kitty settings that were previously defined
+# You may want to add your custom settings below this line
+
+background_opacity 0.8
+background_blur 1 
+EOL
+    
+    # If there was a previous config, append non-color settings to the new config
+    if [ -f "${KITTY_CONFIG}.backup" ]; then
+        echo "" >> "$KITTY_CONFIG"
+        echo "# Previous custom settings (non-color related)" >> "$KITTY_CONFIG"
+        grep -v "^color\|^background\|^foreground\|^cursor\|^selection_" "${KITTY_CONFIG}.backup" | grep -v "^#" >> "$KITTY_CONFIG"
+    fi
+    
+    echo "Kitty terminal colors updated successfully!"
+    echo "Config saved to: $KITTY_CONFIG"
+    
+    # Clean up
+    rm -rf "$TEMP_DIR"
+    
+    # Reload kitty config if kitty is running
+    if pgrep -x "kitty" > /dev/null; then
+        echo "Reloading kitty configuration..."
+        pkill -USR1 kitty
+    fi
+    
+    return 0
+}
 
 # Function to fetch and download a random popular wallpaper with at least 2K resolution
 fetch_wallpaper() {
@@ -56,6 +167,12 @@ fetch_wallpaper() {
     
     # Make the API request to Wallhaven
     local fetch_response=$(curl -s "https://wallhaven.cc/api/v1/search?sorting=toplist&order=desc&topRange=${TIMEFRAME}")
+    
+    # Check if API request was successful (empty response means no internet)
+    if [ -z "$fetch_response" ]; then
+        echo "Error: Failed to connect to Wallhaven API. Check your internet connection."
+        return 1
+    fi
     
     # Count results
     local total_results=$(echo "$fetch_response" | jq '.data | length')
@@ -159,12 +276,15 @@ if $FIRST_RUN; then
             # Small delay to ensure wallpaper is fully loaded
             sleep 1
             # Now apply the same wallpaper again but with transition for visual confirmation
-            swww img "$CURRENT_WALLPAPER" --transition-type grow --transition-pos center
+            swww img "$CURRENT_WALLPAPER" --transition-type random --transition-pos center
         else
             # Use transition for subsequent runs
-            swww img "$CURRENT_WALLPAPER" --transition-type grow --transition-pos center
+            swww img "$CURRENT_WALLPAPER" --transition-type random --transition-pos center
         fi
         echo "Wallpaper set successfully!"
+        
+        # Apply color palette to kitty terminal
+        apply_wallpaper_colors_to_kitty
     else
         echo "Warning: No current wallpaper found to apply"
     fi
@@ -196,13 +316,13 @@ else
         echo "Warning: No next wallpaper found to move to current"
     fi
     
-    # Fetch a new next wallpaper
+    # Try to fetch a new next wallpaper
     echo "Fetching new next wallpaper..."
     if fetch_wallpaper "$SAVE_DIR/next"; then
         echo "Next wallpaper set successfully!"
     else
-        echo "Failed to set next wallpaper. Please run the script again."
-        exit 1
+        echo "Failed to set next wallpaper. Will continue using current wallpaper."
+        # Note that we don't exit here - we still apply the current wallpaper
     fi
     
     # Apply the wallpaper using swww
@@ -222,6 +342,9 @@ else
             swww img "$CURRENT_WALLPAPER" --transition-type random --transition-pos center
         fi
         echo "Wallpaper set successfully!"
+        
+        # Apply color palette to kitty terminal
+        apply_wallpaper_colors_to_kitty
     else
         echo "Warning: No current wallpaper found to apply"
     fi
