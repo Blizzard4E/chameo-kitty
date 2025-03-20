@@ -1,10 +1,9 @@
 #!/bin/bash
 
-# Usage: ./wallhaven-fetch.sh [timeframe] [aspect_ratio]
+# Usage: ./wallhaven-fetch.sh [timeframe]
 # Timeframe options: 1d (1 day), 3d (3 days), 1w (1 week), 1M (1 month), 3M (3 months), 6M (6 months), 1y (1 year)
-# Aspect ratio options: 16x9 (widescreen), 21x9 (ultrawide), 16x10, 4x3, 1x1 (square), etc.
-# Default is 1M (past month) and 16x9 aspect ratio if not specified
-# Example: ./wallhaven-fetch.sh 1w 21x9  # Get popular 21:9 ultrawide wallpapers from the past week
+# Default is 1M (past month) if no timeframe is specified
+# Example: ./wallhaven-fetch.sh 1w  # Get popular wallpapers from the past week
 
 # Check if swww is installed
 if ! command -v swww &> /dev/null; then
@@ -34,13 +33,9 @@ MIN_HEIGHT=1440
 # Default to 1 month if not specified
 TIMEFRAME="${1:-1M}"
 
-# Define aspect ratio filter (16x9, 21x9, 16x10, 4x3, etc.)
-# Default to 16x9 (widescreen) if not specified
-ASPECT_RATIO="${2:-16x9}"
-
-# Make the API request to Wallhaven, searching for popular images with specified aspect ratio
+# Make the API request to Wallhaven, searching for popular images without resolution filter
 # Using 'toplist' sorting parameter with timeframe to get popular wallpapers
-response=$(curl -s "https://wallhaven.cc/api/v1/search?ratios=${ASPECT_RATIO}&sorting=toplist&order=desc&topRange=${TIMEFRAME}")
+response=$(curl -s "https://wallhaven.cc/api/v1/search?sorting=toplist&order=desc&topRange=${TIMEFRAME}")
 
 # Extract the direct image URL from the JSON response
 # We're using jq to parse the JSON and get the first image URL
@@ -60,7 +55,7 @@ fetch_wallpaper() {
     local height=0
     
     # Make the API request to Wallhaven
-    local fetch_response=$(curl -s "https://wallhaven.cc/api/v1/search?ratios=${ASPECT_RATIO}&sorting=toplist&order=desc&topRange=${TIMEFRAME}")
+    local fetch_response=$(curl -s "https://wallhaven.cc/api/v1/search?sorting=toplist&order=desc&topRange=${TIMEFRAME}")
     
     # Count results
     local total_results=$(echo "$fetch_response" | jq '.data | length')
@@ -73,7 +68,7 @@ fetch_wallpaper() {
     
     # Try to find a wallpaper with at least 2K resolution
     while [[ $attempt -le $max_attempts && ($width -lt $MIN_WIDTH || $height -lt $MIN_HEIGHT) ]]; do
-        echo "Attempt $attempt to find a 2K+ resolution wallpaper with ${ASPECT_RATIO} aspect ratio..."
+        echo "Attempt $attempt to find a 2K+ resolution wallpaper..."
         
         # Generate a random index
         local fetch_random_index=$((RANDOM % total_results))
@@ -82,13 +77,10 @@ fetch_wallpaper() {
         width=$(echo "$fetch_response" | jq -r ".data[$fetch_random_index].dimension_x")
         height=$(echo "$fetch_response" | jq -r ".data[$fetch_random_index].dimension_y")
         
-        # Extract the aspect ratio for logging
-        aspect=$(echo "$fetch_response" | jq -r ".data[$fetch_random_index].ratio")
-        
         # Check if dimensions are at least 2K
         if [[ $width -ge $MIN_WIDTH && $height -ge $MIN_HEIGHT ]]; then
             fetch_image_url=$(echo "$fetch_response" | jq -r ".data[$fetch_random_index].path")
-            echo "Found wallpaper with resolution ${width}x${height} (ratio: ${aspect})"
+            echo "Found wallpaper with resolution ${width}x${height}"
             break
         fi
         
@@ -98,7 +90,7 @@ fetch_wallpaper() {
     
     # Check if we found a suitable wallpaper
     if [[ "$fetch_image_url" == "null" || -z "$fetch_image_url" || $width -lt $MIN_WIDTH || $height -lt $MIN_HEIGHT ]]; then
-        echo "Error: Could not find a wallpaper with at least 2K resolution and ${ASPECT_RATIO} aspect ratio after $max_attempts attempts"
+        echo "Error: Could not find a wallpaper with at least 2K resolution after $max_attempts attempts"
         return 1
     fi
     
@@ -137,7 +129,6 @@ done
 
 if $FIRST_RUN; then
     echo "First run detected! Setting up both current and next wallpapers..."
-    echo "Using aspect ratio: ${ASPECT_RATIO}"
     
     # Fetch current wallpaper
     echo "Fetching current wallpaper..."
@@ -168,10 +159,10 @@ if $FIRST_RUN; then
             # Small delay to ensure wallpaper is fully loaded
             sleep 1
             # Now apply the same wallpaper again but with transition for visual confirmation
-            swww img "$CURRENT_WALLPAPER" --transition-type random --transition-pos center
+            swww img "$CURRENT_WALLPAPER" --transition-type grow --transition-pos center
         else
             # Use transition for subsequent runs
-            swww img "$CURRENT_WALLPAPER" --transition-type random --transition-pos center
+            swww img "$CURRENT_WALLPAPER" --transition-type grow --transition-pos center
         fi
         echo "Wallpaper set successfully!"
     else
@@ -184,8 +175,6 @@ if $FIRST_RUN; then
     
 else
     # Normal rotation as before
-    echo "Using aspect ratio: ${ASPECT_RATIO}"
-    
     # Find extensions of existing files
     CURRENT_EXT=$(find "$SAVE_DIR" -name "current.*" | awk -F. '{print $NF}')
     NEXT_EXT=$(find "$SAVE_DIR" -name "next.*" | awk -F. '{print $NF}')
