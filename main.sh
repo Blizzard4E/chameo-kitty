@@ -230,7 +230,7 @@ fetch_wallpaper() {
     local height=0
     
     # Make the API request to Wallhaven
-    local fetch_response=$(curl -s "https://wallhaven.cc/api/v1/search?sorting=toplist")
+    local fetch_response=$(curl -s "https://wallhaven.cc/api/v1/search?categories=010&sorting=toplist")
     
     # Check if API request was successful (empty response means no internet)
     if [ -z "$fetch_response" ]; then
